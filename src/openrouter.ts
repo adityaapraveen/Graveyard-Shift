@@ -14,6 +14,7 @@ type Fetcher = typeof fetch;
 
 export async function chooseEvidence(biography: Biography, apiKey: string, model: string, fetcher: Fetcher = fetch): Promise<ModelDecision> {
   if (!apiKey) throw new Error("OpenRouter API key is missing");
+  if (model !== "openrouter/free" && !model.endsWith(":free")) throw new Error("Only free OpenRouter models are allowed");
   const response = await fetcher("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "authorization": `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -21,7 +22,7 @@ export async function chooseEvidence(biography: Biography, apiKey: string, model
       model,
       provider: { require_parameters: true },
       temperature: 0,
-      max_tokens: 150,
+      max_completion_tokens: 1200,
       messages: [
         { role: "system", content: "Select evidence kinds that matter for reviewing a DNS record. Its purpose is always unknown. Do not infer safety or propose actions." },
         { role: "user", content: JSON.stringify({ name: biography.record.name, type: biography.record.type, content: biography.record.content, score: biography.score, signals: biography.signals }) }

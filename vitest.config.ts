@@ -4,6 +4,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [cloudflareTest({
     wrangler: { configPath: "./wrangler.jsonc" },
-    miniflare: { bindings: { ADMIN_SECRET: "secret" } }
+    miniflare: { bindings: { ADMIN_SECRET: "secret", OPENROUTER_API_KEY: "", DRY_RUN: "false" } }
   })]
 });

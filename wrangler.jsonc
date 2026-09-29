@@ -7,16 +7,21 @@
   "durable_objects": {
     "bindings": [
       { "name": "GraveyardAgent", "class_name": "GraveyardAgent" },
-      { "name": "ResourceBiography", "class_name": "ResourceBiography" }
+      { "name": "ResourceBiography", "class_name": "ResourceBiography" },
+      { "name": "MockZone", "class_name": "MockZone" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["GraveyardAgent", "ResourceBiography"] }
+    { "tag": "v1", "new_sqlite_classes": ["GraveyardAgent", "ResourceBiography"] },
+    { "tag": "v2", "new_sqlite_classes": ["MockZone"] }
+  ],
+  "workflows": [
+    { "name": "graveyard-quarantine", "binding": "QUARANTINE_WORKFLOW", "class_name": "QuarantineWorkflow" }
   ],
   "vars": {
     "CF_MODE": "mock",
     "DRY_RUN": "true",
     "PROTECTED_NAMES": "www,mail,api",
-    "OPENROUTER_MODEL": "openrouter/free"
+    "OPENROUTER_MODEL": "liquid/lfm-2.5-2.6b:free"
   }
 }

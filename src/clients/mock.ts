@@ -1,4 +1,5 @@
 import type { CloudflareClient, DnsRecord } from "../types";
+import type { AppEnv } from "../env";
 
 const zoneId = "mock-zone";
 const seedEpoch = Date.UTC(2026, 8, 29);
@@ -28,29 +29,37 @@ const seeds: MockSeed[] = [
   { name: "test.example.test", type: "TXT", content: "old", ageDays: 800, resolves: false, hits: 0 }
 ];
 
+export function createMockRecords(): DnsRecord[] {
+  return seeds.map((seed, index) => ({
+    id: `mock-${index + 1}`,
+    zoneId,
+    name: seed.name,
+    type: seed.type,
+    content: seed.content,
+    createdOn: dateDaysAgo(seed.ageDays + 100),
+    modifiedOn: dateDaysAgo(seed.ageDays),
+    proxied: false,
+    ttl: 300
+  }));
+}
+
 export class MockClient implements CloudflareClient {
   private readonly records: DnsRecord[];
   private readonly evidence = new Map<string, Pick<MockSeed, "resolves" | "hits">>();
 
-  constructor() {
-    this.records = seeds.map((seed, index) => {
+  constructor(private readonly env?: AppEnv) {
+    this.records = createMockRecords();
+    seeds.forEach((seed, index) => {
       const id = `mock-${index + 1}`;
       this.evidence.set(id, { resolves: seed.resolves, hits: seed.hits });
-      return {
-        id,
-        zoneId,
-        name: seed.name,
-        type: seed.type,
-        content: seed.content,
-        createdOn: dateDaysAgo(seed.ageDays + 100),
-        modifiedOn: dateDaysAgo(seed.ageDays),
-        proxied: false,
-        ttl: 300
-      };
     });
   }
 
   async listRecords(requestedZoneId: string): Promise<DnsRecord[]> {
+    if (this.env && requestedZoneId === zoneId) {
+      const response = await this.zoneFetch("/records");
+      return response.json() as Promise<DnsRecord[]>;
+    }
     return requestedZoneId === zoneId ? this.records.map((record) => ({ ...record })) : [];
   }
 
@@ -60,5 +69,11 @@ export class MockClient implements CloudflareClient {
 
   async recentTraffic(record: DnsRecord): Promise<number | null> {
     return this.evidence.get(record.id)?.hits ?? null;
+  }
+
+  async zoneFetch(path: string, body?: unknown): Promise<Response> {
+    if (!this.env) throw new Error("Mock zone binding is unavailable");
+    const stub = this.env.MockZone.get(this.env.MockZone.idFromName(zoneId));
+    return stub.fetch(new Request(`https://mock-zone.internal${path}`, body === undefined ? undefined : { method: "POST", body: JSON.stringify(body) }));
   }
 }
