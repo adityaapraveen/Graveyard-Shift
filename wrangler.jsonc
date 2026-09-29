@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "graveyard-shift",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-29",
+  "vars": {
+    "CF_MODE": "mock",
+    "DRY_RUN": "true",
+    "PROTECTED_NAMES": "www,mail,api",
+    "OPENROUTER_MODEL": "openrouter/free"
+  }
+}
