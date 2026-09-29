@@ -12,4 +12,4 @@ Run `npx wrangler dev --local --env-file .env --var DRY_RUN:false` and open `htt
 
 **1:20–1:45 — Quiet deletion.** Repeat with another suspect, such as `staging.example.test`, and let its window end without a hit. Show the obituary card and open `/obituary/mock-2`; point to its born/died timestamps, recorded cause, survivors, last words, and Open Graph metadata.
 
-**1:45–2:00 — Recovery and limits.** Use the API or dashboard's restore control to show a saved snapshot can bring a record back. State the live-mode boundary: this demo used mock DNS, only HTTP(S) traffic can scream, and a quiet window does not prove non-web services are unused.
+**1:45–2:00 — Recovery and limits.** Click “Restore from snapshot” on the obituary card to bring the mock record back. State the live-mode boundary: this demo used mock DNS, only HTTP(S) traffic can scream, and a quiet window does not prove non-web services are unused.

@@ -33,7 +33,7 @@ The sinkhole only sees HTTP(S) requests routed through the Worker. It cannot det
 
 ## Obituaries and gallery
 
-The dashboard lists suspects, evidence, chat, a confirmation plan, the quarantine countdown, a restore button, and obituary cards. `GET /api/graveyard` lists deleted records from the mock set of 12 biography Durable Objects or the real zone index.
+The dashboard lists suspects, evidence, chat, a confirmation plan, the quarantine countdown, a restore button, and obituary cards. Each obituary card can restore its deleted record from the saved snapshot, subject to the current dry-run setting and conflict checks. `GET /api/graveyard` lists deleted records from the mock set of 12 biography Durable Objects or the real zone index.
 
 After deletion, a separate retriable Workflow step builds an obituary from the saved biography and remaining zone records, then stores it in `ResourceBiography`. This keeps the page available after completed Workflow state expires. `GET /obituary/:id` is public and server renders escaped HTML with Open Graph tags. Resurrection removes the obsolete obituary. Born is the DNS `created_on` timestamp. Died is the deletion event time. Cause is the quarantine duration and counted unique screams. Survivors are remaining records with the same exact target. Last words are the last logged sinkhole request path, country, and reason; they are not a claim about the record's purpose.
 
@@ -96,6 +96,10 @@ The latest instruction chooses OpenRouter for biography summaries and chat. `OPE
 - **5:** Real Cloudflare client, guarded route and DNS Workflow, deployment setup, and demo script. Implemented locally with fake-API tests; no live Cloudflare zone or deployment was available for validation.
 
 No Cloudflare deployment or live DNS API integration has been tested. The live OpenRouter chat test used mock DNS facts and your locally supplied key. A live real-zone rehearsal is required before enabling writes. The current chat endpoint explains records; chat tools for quarantine and obituary lookup have not yet been added, so those actions use explicit API routes and dashboard controls.
+
+### Deployment status and handoff
+
+The local environment has no authenticated Cloudflare account. A temporary preview deployment was considered, but deployment with `--secrets-file .env` was rejected by automatic approval review because it would upload the OpenRouter key and admin secret to an unclaimed account. No Worker or secrets were uploaded. Cloudflare's temporary accounts also document Durable Objects but not Workflows as a supported temporary-account resource, so a temporary preview cannot be treated as a verified full demo. For a lasting deployment, sign in with `npx wrangler login` in this project directory, review `wrangler.jsonc`, and deploy to your own account with secrets configured as described above. Keep `CF_MODE=mock` and `DRY_RUN=true` for the first deployment. Switching to real mode requires your zone identifiers and zone-scoped API token; this project has not been authorized for a particular live zone.
 
 ## Documentation consulted
 

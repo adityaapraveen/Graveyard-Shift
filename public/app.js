@@ -41,6 +41,18 @@ async function loadGraveyard() {
     const card = node("article", null, "card");
     card.append(node("p", `${obituary.type} RECORD · ${new Date(obituary.died).toLocaleDateString()}`, "eyebrow"), node("h3", obituary.name), node("p", obituary.epitaph));
     const link = node("a", "Read obituary ↗"); link.href = `/obituary/${encodeURIComponent(obituary.recordId)}`; card.append(link); gallery.append(card);
+    const restore = node("button", "Restore from snapshot", "secondary");
+    restore.type = "button";
+    restore.addEventListener("click", async () => {
+      if (!confirm(`Restore ${obituary.name} from its saved DNS snapshot?`)) return;
+      restore.disabled = true;
+      try {
+        const result = await api("/api/quarantine/resurrect", { recordId: obituary.recordId });
+        notice(result.dryRun ? "Dry run: no record was restored." : `${obituary.name} restored from its saved snapshot.`);
+        if (!result.dryRun) await Promise.all([loadGraveyard(), loadSuspects()]);
+      } catch (error) { notice(error.message); restore.disabled = false; }
+    });
+    card.append(restore);
   }
 }
 
@@ -80,7 +92,7 @@ async function propose(record) {
     $("#dialog-title").textContent = record.name;
     $("#dialog-plan").textContent = proposal.plan;
     const dl = $("#dialog-details"); dl.replaceChildren();
-    for (const [label, value] of [["Record", `${record.type} ${record.name}`], ["Current target", record.content], ["Window", state.mode === "real" ? "1 hour" : "5 seconds"], ["Threshold", "1 unique human request"], ["Mode", state.dryRun ? "Dry run; no changes" : "Mock zone changes enabled"]]) dl.append(node("dt", label), node("dd", value));
+    for (const [label, value] of [["Record", `${record.type} ${record.name}`], ["Current target", record.content], ["Window", state.mode === "real" ? "1 hour" : "5 seconds"], ["Threshold", "1 unique human request"], ["Mode", state.dryRun ? "Dry run; no changes" : `${state.mode.toUpperCase()} zone changes enabled`]]) dl.append(node("dt", label), node("dd", value));
     $("#confirm-dialog").showModal();
   } catch (error) { notice(error.message); }
 }
