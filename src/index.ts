@@ -4,6 +4,9 @@ import type { AppEnv } from "./env";
 import { isEligible, listSuspects, scoreRecord } from "./scoring";
 import { recordSinkholeHit, sinkholeResponse } from "./sinkhole";
 import type { QuarantineParams } from "./workflow";
+import type { Biography } from "./biography";
+import { obituaryPage } from "./obituary";
+import { clearSessionCookie, isAuthorized, loginPage, sameOrigin, sessionCookie } from "./session";
 
 export { GraveyardAgent } from "./agent";
 export { ResourceBiography } from "./biography";
@@ -20,11 +23,51 @@ export default {
       if (route.ok) return sinkholeResponse(request, env, (await route.json() as { recordId: string }).recordId);
       await route.arrayBuffer();
     }
-    if (!url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
-    if (!env.ADMIN_SECRET || request.headers.get("x-admin-secret") !== env.ADMIN_SECRET) return json({ error: "Unauthorized" }, 401);
+    if (url.pathname.startsWith("/obituary/") && request.method === "GET" && env.CF_MODE === "mock") {
+      const recordId = decodeURIComponent(url.pathname.slice("/obituary/".length));
+      if (!createMockRecords().some((record) => record.id === recordId)) return json({ error: "Not found" }, 404);
+      const response = await biographyRequest(env, "mock-zone", recordId, "/");
+      if (!response.ok) return json({ error: "Not found" }, 404);
+      const biography = await response.json() as Biography;
+      return biography.state === "deleted" && biography.obituary ? obituaryPage(biography.obituary, url.origin) : json({ error: "Obituary not found" }, 404);
+    }
+    if (url.pathname === "/login" && request.method === "POST") {
+      if (!sameOrigin(request)) return json({ error: "Invalid origin" }, 403);
+      const form = await request.formData();
+      if (!env.ADMIN_SECRET || form.get("secret") !== env.ADMIN_SECRET) return loginPage(true);
+      return new Response(null, { status: 303, headers: { location: "/", "set-cookie": await sessionCookie(env.ADMIN_SECRET, url.protocol === "https:") } });
+    }
+    if (url.pathname === "/logout" && request.method === "POST") {
+      if (!sameOrigin(request)) return json({ error: "Invalid origin" }, 403);
+      return new Response(null, { status: 303, headers: { location: "/", "set-cookie": clearSessionCookie(url.protocol === "https:") } });
+    }
+    const authorization = await isAuthorized(request, env);
+    if (!url.pathname.startsWith("/api/")) {
+      if (!["/", "/index.html", "/app.js", "/styles.css"].includes(url.pathname)) return json({ error: "Not found" }, 404);
+      if (!authorization.allowed) return url.pathname === "/" || url.pathname === "/index.html" ? loginPage() : json({ error: "Unauthorized" }, 401);
+      if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+      const asset = await env.ASSETS.fetch(url.pathname === "/" ? new Request(`${url.origin}/index.html`) : request);
+      const headers = new Headers(asset.headers);
+      headers.set("cache-control", "no-store");
+      headers.set("x-content-type-options", "nosniff");
+      headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+      return new Response(asset.body, { status: asset.status, headers });
+    }
+    if (!authorization.allowed) return json({ error: "Unauthorized" }, 401);
+    if (authorization.cookie && request.method !== "GET" && !sameOrigin(request)) return json({ error: "Invalid origin" }, 403);
+    if (authorization.cookie && request.method !== "GET" && !request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "JSON required" }, 415);
     if (env.CF_MODE !== "mock") return json({ error: "Real Cloudflare client is scheduled for milestone 5" }, 501);
     const client = new MockClient(env);
     const protectedNames = env.PROTECTED_NAMES.split(",").map((name) => name.trim());
+    if (url.pathname === "/api/quarantines" && request.method === "GET") return client.zoneFetch("/quarantines");
+    if (url.pathname === "/api/graveyard" && request.method === "GET") {
+      const biographies = await Promise.all(createMockRecords().map(async (record) => {
+        const response = await biographyRequest(env, "mock-zone", record.id, "/");
+        if (!response.ok) { await response.arrayBuffer(); return null; }
+        return response.json() as Promise<Biography>;
+      }));
+      return json({ obituaries: biographies.filter((biography) => biography?.state === "deleted" && biography.obituary).map((biography) => biography!.obituary) });
+    }
     if (url.pathname === "/api/suspects" && request.method === "GET") {
       const suspects = await listSuspects(client, "mock-zone", "example.test", protectedNames);
       return json({ zoneId: "mock-zone", dryRun: String(env.DRY_RUN) !== "false", suspects });

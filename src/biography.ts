@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { AppEnv } from "./env";
 import type { DnsRecord, Signal, Suspect } from "./types";
+import type { Obituary } from "./obituary";
 
 export interface Biography {
   record: DnsRecord;
@@ -11,6 +12,7 @@ export interface Biography {
   events: { at: string; kind: string; detail: string }[];
   hits: { at: string; ipHash: string; userAgent: string; path: string; country: string; counted: boolean; reason: string; workflowId: string }[];
   quarantine: { workflowId: string; deadlineAt: string; threshold: number; resurrectRequested: boolean } | null;
+  obituary: Obituary | null;
 }
 
 export class ResourceBiography extends DurableObject<AppEnv> {
@@ -38,6 +40,7 @@ export class ResourceBiography extends DurableObject<AppEnv> {
         deadline_at TEXT NOT NULL, threshold INTEGER NOT NULL,
         resurrect_requested INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS obituary (id INTEGER PRIMARY KEY CHECK (id = 1), data_json TEXT NOT NULL);
     `);
     const columns = [...ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(sinkhole_hits)")].map((row) => row.name);
     if (!columns.includes("counted")) ctx.storage.sql.exec("ALTER TABLE sinkhole_hits ADD COLUMN counted INTEGER NOT NULL DEFAULT 1");
@@ -69,6 +72,16 @@ export class ResourceBiography extends DurableObject<AppEnv> {
     if (path === "/" && request.method === "GET") {
       const biography = this.readBiography();
       return biography ? Response.json(biography) : Response.json({ error: "Biography not found" }, { status: 404 });
+    }
+    if (path === "/obituary" && request.method === "POST") {
+      const biography = this.readBiography();
+      if (!biography || biography.state !== "deleted") return Response.json({ error: "Record is not deleted" }, { status: 409 });
+      if (biography.obituary) return Response.json(biography.obituary);
+      let value: Obituary;
+      try { value = await request.json() as Obituary; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
+      if (value.recordId !== biography.record.id || value.name !== biography.snapshot.name || typeof value.epitaph !== "string" || value.epitaph.length > 500) return Response.json({ error: "Invalid obituary" }, { status: 400 });
+      this.ctx.storage.sql.exec("INSERT INTO obituary (id, data_json) VALUES (1, ?)", JSON.stringify(value));
+      return Response.json(value);
     }
     if (request.method === "POST" && ["/snapshot", "/quarantined", "/hit", "/resurrect-request", "/resurrected", "/deleted"].includes(path)) {
       let body: Record<string, unknown>;
@@ -124,6 +137,7 @@ export class ResourceBiography extends DurableObject<AppEnv> {
         if (biography.state === "resurrected") return Response.json(biography);
         if (!["quarantined", "suspect", "deleted"].includes(biography.state)) return Response.json({ error: "Cannot resurrect this state" }, { status: 409 });
         sql.exec("UPDATE biography SET state = 'resurrected', record_json = snapshot_json WHERE id = 1");
+        sql.exec("DELETE FROM obituary");
         this.event("resurrected", "Original DNS record restored from snapshot; sinkhole route removed.");
         return Response.json(this.readBiography());
       }
@@ -153,6 +167,10 @@ export class ResourceBiography extends DurableObject<AppEnv> {
       quarantine: (() => {
         const meta = [...sql.exec<{ workflow_id: string; deadline_at: string; threshold: number; resurrect_requested: number }>("SELECT * FROM quarantine_meta WHERE id = 1")][0];
         return meta ? { workflowId: meta.workflow_id, deadlineAt: meta.deadline_at, threshold: meta.threshold, resurrectRequested: meta.resurrect_requested === 1 } : null;
+      })(),
+      obituary: (() => {
+        const row = [...sql.exec<{ data_json: string }>("SELECT data_json FROM obituary WHERE id = 1")][0];
+        return row ? JSON.parse(row.data_json) as Obituary : null;
       })()
     };
   }

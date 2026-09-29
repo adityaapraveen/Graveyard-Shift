@@ -6,6 +6,7 @@ import type { Biography } from "./biography";
 import type { AppEnv } from "./env";
 import { scoreRecord } from "./scoring";
 import type { DnsRecord } from "./types";
+import { obituaryFacts, writeEpitaph } from "./obituary";
 
 export interface QuarantineParams {
   zoneId: string;
@@ -48,7 +49,7 @@ export class QuarantineWorkflow extends WorkflowEntrypoint<AppEnv, QuarantinePar
       if (shouldResurrect(biography)) break;
     }
 
-    return step.do("finalize", retries, async () => {
+    const result = await step.do("finalize", retries, async () => {
       const biography = await requireJson<Biography>(await biographyRequest(this.env, params.zoneId, params.recordId, "/"));
       if (shouldResurrect(biography)) {
         await this.restore(client, params);
@@ -58,6 +59,14 @@ export class QuarantineWorkflow extends WorkflowEntrypoint<AppEnv, QuarantinePar
       await requireJson(await biographyRequest(this.env, params.zoneId, params.recordId, "/deleted", {}));
       return { state: "deleted" as const };
     });
+    if (result.state === "deleted") await step.do("write obituary", retries, async () => {
+      const biography = await requireJson<Biography>(await biographyRequest(this.env, params.zoneId, params.recordId, "/"));
+      if (biography.obituary) return;
+      const facts = obituaryFacts(biography, await client.listRecords(params.zoneId));
+      const epitaph = await writeEpitaph(facts, this.env);
+      await requireJson(await biographyRequest(this.env, params.zoneId, params.recordId, "/obituary", { ...facts, ...epitaph }));
+    });
+    return result;
   }
 
   private async restore(client: MockClient, params: QuarantineParams): Promise<void> {

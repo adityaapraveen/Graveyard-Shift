@@ -8,7 +8,7 @@ async function biography(): Promise<Biography> {
   const client = new MockClient();
   const record = (await client.listRecords("mock-zone"))[0];
   const suspect = await scoreRecord(record, client);
-  return { ...suspect, snapshot: record, state: "suspect", events: [], hits: [], quarantine: null };
+  return { ...suspect, snapshot: record, state: "suspect", events: [], hits: [], quarantine: null, obituary: null };
 }
 
 const fakeResponse = (value: unknown): typeof fetch => (async (_url: unknown, init: RequestInit) => {

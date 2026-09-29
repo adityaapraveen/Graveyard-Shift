@@ -71,6 +71,10 @@ describe("mock quarantine state machine", () => {
     expect(await statusOnly(await api("/api/quarantine/confirm", { recordId, token: secondPlan.token, quarantineSeconds: 2, screamThreshold: 1 }))).toBe(202);
     const secondCycle = await waitFor(recordId, "deleted");
     expect(secondCycle.biography.hits).toHaveLength(4);
+    expect(secondCycle.biography.obituary?.recordId).toBe(recordId);
+    const publicPage = await worker.fetch(new Request(`https://example.test/obituary/${recordId}`), appEnv);
+    expect(publicPage.status).toBe(200);
+    expect(await publicPage.text()).toContain("og:description");
   });
 
   it("deletes after the window when nobody screams while retaining the snapshot", async () => {
@@ -80,12 +84,17 @@ describe("mock quarantine state machine", () => {
     expect(await statusOnly(confirmed)).toBe(202);
     const final = await waitFor(recordId, "deleted");
     expect(final.biography.snapshot.content).toBe(plan.record.content);
+    expect(final.biography.obituary?.cause).toContain("0 counted screams");
+    const gallery = await api("/api/graveyard");
+    expect((await gallery.json() as { obituaries: { recordId: string }[] }).obituaries.some((item) => item.recordId === recordId)).toBe(true);
     const suspects = await api("/api/suspects");
     expect((await suspects.json() as { suspects: { record: { id: string } }[] }).suspects.some((item) => item.record.id === recordId)).toBe(false);
     const restore = await api("/api/quarantine/resurrect", { recordId });
     expect(restore.status).toBe(200);
     const restored = await restore.json() as Biography;
     expect(restored.state).toBe("resurrected");
+    expect(restored.obituary).toBeNull();
+    expect(await statusOnly(await worker.fetch(new Request(`https://example.test/obituary/${recordId}`), appEnv))).toBe(404);
     const records = await api("/api/suspects");
     expect((await records.json() as { suspects: { record: { id: string; content: string } }[] }).suspects.find((item) => item.record.id === recordId)?.record.content).toBe(plan.record.content);
   });

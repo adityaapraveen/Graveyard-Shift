@@ -41,6 +41,9 @@ export class MockZone extends DurableObject<AppEnv> {
       const row = this.quarantine(id);
       return row ? Response.json({ recordId: id, state: row.state, workflowId: row.workflow_id, routePattern: row.route_pattern }) : Response.json({ error: "Not found" }, { status: 404 });
     }
+    if (request.method === "GET" && url.pathname === "/quarantines") {
+      return Response.json({ active: [...sql.exec<{ record_id: string; state: QuarantineState }>("SELECT record_id, state FROM quarantines WHERE state IN ('starting', 'quarantined') ORDER BY record_id")].map((row) => ({ recordId: row.record_id, state: row.state })) });
+    }
     if (request.method === "GET" && url.pathname.startsWith("/route/")) {
       const pattern = `${url.pathname.slice("/route/".length)}/*`;
       const route = [...sql.exec<{ record_id: string }>("SELECT record_id FROM routes WHERE pattern = ?", pattern)][0];
