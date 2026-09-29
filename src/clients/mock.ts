@@ -1,7 +1,8 @@
 import type { CloudflareClient, DnsRecord } from "../types";
 
 const zoneId = "mock-zone";
-const dateDaysAgo = (days: number): string => new Date(Date.now() - days * 86_400_000).toISOString();
+const seedEpoch = Date.UTC(2026, 8, 29);
+const dateDaysAgo = (days: number): string => new Date(seedEpoch - days * 86_400_000).toISOString();
 
 interface MockSeed {
   name: string;

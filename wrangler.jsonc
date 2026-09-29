@@ -3,6 +3,16 @@
   "name": "graveyard-shift",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "GraveyardAgent", "class_name": "GraveyardAgent" },
+      { "name": "ResourceBiography", "class_name": "ResourceBiography" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GraveyardAgent", "ResourceBiography"] }
+  ],
   "vars": {
     "CF_MODE": "mock",
     "DRY_RUN": "true",
