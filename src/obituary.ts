@@ -52,7 +52,7 @@ export async function writeEpitaph(facts: ReturnType<typeof obituaryFacts>, env:
       method: "POST",
       headers: { authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model, provider: { require_parameters: true }, temperature: 0, max_completion_tokens: 800,
+        model, provider: { require_parameters: true }, temperature: 0, max_completion_tokens: 3000,
         messages: [
           { role: "system", content: "Compose a one-line DNS obituary by selecting exactly one allowed opening, fact detail, and closing. Never invent purpose or usage." },
           { role: "user", content: JSON.stringify(facts) }

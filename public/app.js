@@ -1,5 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { selectedId: null, proposal: null, timer: null, dryRun: true, active: false };
+const state = { selectedId: null, proposal: null, timer: null, dryRun: true, active: false, mode: "mock" };
 const notice = (message) => { $("#notice").textContent = message || ""; };
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text != null) element.textContent = text; if (className) element.className = className; return element; };
 
@@ -15,8 +15,9 @@ async function api(path, body) {
 
 async function loadSuspects() {
   const data = await api("/api/suspects");
-  state.dryRun = data.dryRun;
-  $("#mode-badge").textContent = data.dryRun ? "DRY RUN ON" : "MOCK CHANGES ON";
+  state.dryRun = data.dryRun; state.mode = data.mode;
+  $("#zone-label").textContent = `● ${data.mode.toUpperCase()} ZONE · ${data.zoneName}`;
+  $("#mode-badge").textContent = data.dryRun ? "DRY RUN ON" : `${data.mode.toUpperCase()} CHANGES ON`;
   $("#overview").textContent = `${data.suspects.length} records ready for review`;
   const tbody = $("#suspects"); tbody.replaceChildren();
   if (!data.suspects.length) { const tr = node("tr"); const td = node("td", "No eligible suspects remain."); td.colSpan = 5; tr.append(td); tbody.append(tr); return; }
@@ -59,8 +60,11 @@ async function showStatus() {
       $("#resurrect").classList.remove("hidden");
     } else {
       $("#resurrect").classList.add("hidden");
-      if (q.state === "deleted" || q.state === "resurrected") state.active = false;
-      if (q.state === "deleted") { timelineLine("Deleted · obituary preserved"); await loadGraveyard(); }
+      if (q.state === "deleted") {
+        if (biography?.obituary) { state.active = false; timelineLine("Deleted · obituary preserved"); await loadGraveyard(); }
+        else timelineLine("Deleted · writing obituary…");
+      }
+      if (q.state === "resurrected") state.active = false;
       if (q.state === "resurrected") timelineLine("Restored from original snapshot");
       await loadSuspects();
     }
@@ -70,12 +74,13 @@ async function showStatus() {
 async function propose(record) {
   notice(""); state.selectedId = record.id;
   try {
-    const proposal = await api("/api/quarantine/propose", { recordId: record.id, quarantineSeconds: 5, screamThreshold: 1 });
-    state.proposal = { ...proposal, recordId: record.id, quarantineSeconds: 5, screamThreshold: 1 };
+    const seconds = state.mode === "real" ? 3600 : 5;
+    const proposal = await api("/api/quarantine/propose", { recordId: record.id, quarantineSeconds: seconds, screamThreshold: 1 });
+    state.proposal = { ...proposal, recordId: record.id, quarantineSeconds: seconds, screamThreshold: 1 };
     $("#dialog-title").textContent = record.name;
     $("#dialog-plan").textContent = proposal.plan;
     const dl = $("#dialog-details"); dl.replaceChildren();
-    for (const [label, value] of [["Record", `${record.type} ${record.name}`], ["Current target", record.content], ["Window", "5 seconds"], ["Threshold", "1 unique human request"], ["Mode", state.dryRun ? "Dry run; no changes" : "Mock zone changes enabled"]]) dl.append(node("dt", label), node("dd", value));
+    for (const [label, value] of [["Record", `${record.type} ${record.name}`], ["Current target", record.content], ["Window", state.mode === "real" ? "1 hour" : "5 seconds"], ["Threshold", "1 unique human request"], ["Mode", state.dryRun ? "Dry run; no changes" : "Mock zone changes enabled"]]) dl.append(node("dt", label), node("dd", value));
     $("#confirm-dialog").showModal();
   } catch (error) { notice(error.message); }
 }

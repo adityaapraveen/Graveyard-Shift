@@ -1,5 +1,6 @@
 import { Agent } from "agents";
 import { MockClient } from "./clients/mock";
+import { RealClient, realConfig } from "./clients/real";
 import { biographyRequest, syncBiography } from "./biography";
 import type { Biography } from "./biography";
 import type { AppEnv } from "./env";
@@ -33,17 +34,19 @@ export class GraveyardAgent extends Agent<AppEnv> {
 
     let input: ChatInput;
     try { input = await request.json() as ChatInput; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
-    if (typeof input.message !== "string" || !input.message.trim() || input.message.length > 1000 || input.zoneId !== "mock-zone") {
+    const real = String(this.env.CF_MODE) === "real";
+    const zone = real ? realConfig(this.env) : { zoneId: "mock-zone", zoneName: "example.test" };
+    if (typeof input.message !== "string" || !input.message.trim() || input.message.length > 1000 || input.zoneId !== zone.zoneId) {
       return Response.json({ error: "Invalid chat request" }, { status: 400 });
     }
-    const client = new MockClient(this.env);
-    const records = (await client.listRecords("mock-zone")).filter((record) => isEligible(record, "example.test", this.env.PROTECTED_NAMES.split(",").map((name) => name.trim())));
+    const client = real ? new RealClient(this.env) : new MockClient(this.env);
+    const records = (await client.listRecords(zone.zoneId)).filter((record) => isEligible(record, zone.zoneName, this.env.PROTECTED_NAMES.split(",").map((name) => name.trim())));
     const priorId = [...sql.exec<{ value: string }>("SELECT value FROM agent_meta WHERE key = 'last_record_id'")][0]?.value;
-    const record = findRecord(records, input.message, typeof input.recordId === "string" ? input.recordId : undefined, priorId);
+    const record = findRecord(records, input.message, zone.zoneName, typeof input.recordId === "string" ? input.recordId : undefined, priorId);
     if (!record) return Response.json({ error: "Name an eligible DNS record or pass its recordId." }, { status: 400 });
     if (!this.env.OPENROUTER_API_KEY) return Response.json({ error: "OPENROUTER_API_KEY is not configured" }, { status: 503 });
 
-    const existing = await biographyRequest(this.env, "mock-zone", record.id, "/");
+    const existing = await biographyRequest(this.env, zone.zoneId, record.id, "/");
     const stored = existing.ok ? await existing.json() as Biography : null;
     if (!existing.ok) await existing.arrayBuffer();
     const biography = stored && stored.state !== "suspect" ? stored : await syncBiography(this.env, await scoreRecord(record, client));
@@ -71,11 +74,12 @@ export class GraveyardAgent extends Agent<AppEnv> {
   }
 }
 
-function findRecord(records: DnsRecord[], message: string, explicitId?: string, priorId?: string): DnsRecord | undefined {
+function findRecord(records: DnsRecord[], message: string, zoneName: string, explicitId?: string, priorId?: string): DnsRecord | undefined {
   const lower = message.toLowerCase();
   const mentioned = records.find((record) => lower.includes(record.name.toLowerCase()));
   if (explicitId) return records.find((record) => record.id === explicitId && (!mentioned || mentioned.id === explicitId));
   if (mentioned) return mentioned;
-  if (/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.example\.test\b/.test(lower)) return undefined;
+  const escapedZone = zoneName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp(`[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.${escapedZone}\\b`).test(lower)) return undefined;
   return records.find((record) => record.id === priorId);
 }

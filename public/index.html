@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Graveyard Shift · DNS afterlife</title><link rel="stylesheet" href="/styles.css"></head>
 <body>
-<header class="topbar"><a class="brand" href="/" aria-label="Graveyard Shift home"><span class="brand-mark">✳</span> GRAVEYARD <strong>SHIFT</strong></a><div class="top-right"><span class="zone">● MOCK ZONE · example.test</span><form method="post" action="/logout"><button class="text-button" type="submit">Sign out ↗</button></form></div></header>
+<header class="topbar"><a class="brand" href="/" aria-label="Graveyard Shift home"><span class="brand-mark">✳</span> GRAVEYARD <strong>SHIFT</strong></a><div class="top-right"><span id="zone-label" class="zone">● Loading zone…</span><form method="post" action="/logout"><button class="text-button" type="submit">Sign out ↗</button></form></div></header>
 <main>
 <section class="hero"><div class="hero-copy"><p class="eyebrow">DNS AFTERLIFE OPERATIONS <span> / 001</span></p><h1>Every record<br>has a <em>story.</em></h1><p class="lede">Investigate forgotten DNS records, listen for the ones still needed, and give the quiet ones a proper send-off.</p><div class="hero-status"><span id="mode-badge" class="pill">Loading mode</span><span id="overview">Checking the zone…</span></div></div><div class="orb" aria-hidden="true"><div class="orb-inner"><span>G</span><small>SHIFT</small></div></div></section>
 <section class="workspace" aria-label="Operations dashboard"><div class="section-head"><div><p class="eyebrow">01 / DETECT</p><h2>Suspect records</h2></div><button id="refresh" class="secondary" type="button">↻ Refresh evidence</button></div><p class="section-intro">Scores rank records for review. A quiet record is not proof that deletion is safe.</p><div id="notice" role="status" aria-live="polite"></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Target</th><th>Risk score</th><th>Evidence</th><th></th></tr></thead><tbody id="suspects"><tr><td colspan="5">Loading suspects…</td></tr></tbody></table></div></section>
@@ -9,6 +9,6 @@
 <section class="gallery-section"><div class="section-head"><div><p class="eyebrow">04 / REMEMBER</p><h2>The graveyard</h2></div><span class="muted">Shareable obituaries</span></div><div id="gallery" class="gallery"><div class="empty">No obituaries yet. The graveyard is quiet.</div></div></section>
 </main>
 <dialog id="confirm-dialog"><form method="dialog" class="dialog-body"><p class="eyebrow">CONFIRM QUARANTINE</p><h2 id="dialog-title">Review the plan</h2><p id="dialog-plan"></p><dl id="dialog-details"></dl><p class="warning">This can interrupt HTTP traffic. Only proceed after checking the record owner and non-web dependencies.</p><div class="dialog-actions"><button class="secondary" value="cancel">Cancel</button><button id="confirm-button" value="confirm">Confirm scream test</button></div></form></dialog>
-<footer>GRAVEYARD SHIFT <span>Mock DNS research console · OpenRouter on the free tier</span></footer>
+<footer>GRAVEYARD SHIFT <span>DNS research console · OpenRouter on the free tier</span></footer>
 <script src="/app.js" defer></script>
 </body></html>

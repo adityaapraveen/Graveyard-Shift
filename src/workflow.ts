@@ -1,6 +1,7 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { MockClient } from "./clients/mock";
+import { RealClient, realConfig } from "./clients/real";
 import { biographyRequest, syncBiography } from "./biography";
 import type { Biography } from "./biography";
 import type { AppEnv } from "./env";
@@ -16,6 +17,7 @@ export interface QuarantineParams {
   quarantineSeconds: number;
   screamThreshold: number;
   workflowId: string;
+  mode?: "mock" | "real";
 }
 
 const retries = { retries: { limit: 3, delay: "1 second" as const, backoff: "linear" as const } };
@@ -23,9 +25,10 @@ const retries = { retries: { limit: 3, delay: "1 second" as const, backoff: "lin
 export class QuarantineWorkflow extends WorkflowEntrypoint<AppEnv, QuarantineParams> {
   async run(event: WorkflowEvent<QuarantineParams>, step: WorkflowStep): Promise<{ state: "resurrected" | "deleted" }> {
     const params = event.payload;
-    if (String(this.env.DRY_RUN) !== "false" || this.env.CF_MODE !== "mock") throw new Error("Workflow cannot mutate in this mode");
-    if (params.zoneId !== "mock-zone" || params.snapshot.id !== params.recordId || params.snapshot.zoneId !== params.zoneId) throw new Error("Invalid workflow payload");
-    const client = new MockClient(this.env);
+    const mode = params.mode ?? "mock";
+    if (String(this.env.DRY_RUN) !== "false" || String(this.env.CF_MODE) !== mode) throw new Error("Workflow cannot mutate in this mode");
+    if ((mode === "mock" && params.zoneId !== "mock-zone") || (mode === "real" && params.zoneId !== realConfig(this.env).zoneId) || params.snapshot.id !== params.recordId || params.snapshot.zoneId !== params.zoneId) throw new Error("Invalid workflow payload");
+    const client = mode === "mock" ? new MockClient(this.env) : new RealClient(this.env);
 
     await step.do("snapshot", retries, async () => {
       const reservation = await client.zoneFetch(`/quarantine/${params.recordId}`);
@@ -37,14 +40,22 @@ export class QuarantineWorkflow extends WorkflowEntrypoint<AppEnv, QuarantinePar
       }));
     });
 
-    await step.do("apply quarantine", retries, async () => {
-      const applied = await requireJson<{ startedAt: string }>(await client.zoneFetch("/apply", { recordId: params.recordId }));
-      const deadlineAt = new Date(Date.parse(applied.startedAt) + params.quarantineSeconds * 1000).toISOString();
-      await requireJson(await biographyRequest(this.env, params.zoneId, params.recordId, "/quarantined", { deadlineAt }));
-    });
+    try {
+      await step.do("apply quarantine", retries, async () => {
+        const applied = await requireJson<{ startedAt: string }>(await client.zoneFetch("/apply", { recordId: params.recordId }));
+        const deadlineAt = new Date(Date.parse(applied.startedAt) + params.quarantineSeconds * 1000).toISOString();
+        await requireJson(await biographyRequest(this.env, params.zoneId, params.recordId, "/quarantined", { deadlineAt }));
+      });
+    } catch (error) {
+      if (mode !== "real") throw error;
+      await step.do("rollback failed apply", retries, async () => this.restore(client, params));
+      return { state: "resurrected" };
+    }
 
-    for (let check = 0; check < params.quarantineSeconds; check++) {
-      await step.sleep(`wait ${check}`, 1000);
+    const intervalMs = mode === "mock" ? 1000 : 30 * 60_000;
+    const checks = Math.ceil(params.quarantineSeconds * 1000 / intervalMs);
+    for (let check = 0; check < checks; check++) {
+      await step.sleep(`wait ${check}`, Math.min(intervalMs, params.quarantineSeconds * 1000 - check * intervalMs));
       const biography = await step.do(`check ${check}`, retries, async () => requireJson<Biography>(await biographyRequest(this.env, params.zoneId, params.recordId, "/")));
       if (shouldResurrect(biography)) break;
     }
@@ -69,14 +80,14 @@ export class QuarantineWorkflow extends WorkflowEntrypoint<AppEnv, QuarantinePar
     return result;
   }
 
-  private async restore(client: MockClient, params: QuarantineParams): Promise<void> {
+  private async restore(client: MockClient | RealClient, params: QuarantineParams): Promise<void> {
     await requireJson(await client.zoneFetch("/restore", { recordId: params.recordId }));
     await requireJson(await biographyRequest(this.env, params.zoneId, params.recordId, "/resurrected", {}));
   }
 }
 
 function shouldResurrect(biography: Biography): boolean {
-  return biography.state === "quarantined" && !!biography.quarantine &&
+  return biography.state === "resurrected" || biography.state === "quarantined" && !!biography.quarantine &&
     (biography.quarantine.resurrectRequested || biography.hits.filter((hit) => hit.counted && hit.workflowId === biography.quarantine?.workflowId).length >= biography.quarantine.threshold);
 }
 

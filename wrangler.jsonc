@@ -8,12 +8,14 @@
     "bindings": [
       { "name": "GraveyardAgent", "class_name": "GraveyardAgent" },
       { "name": "ResourceBiography", "class_name": "ResourceBiography" },
-      { "name": "MockZone", "class_name": "MockZone" }
+      { "name": "MockZone", "class_name": "MockZone" },
+      { "name": "RealZone", "class_name": "RealZone" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["GraveyardAgent", "ResourceBiography"] },
-    { "tag": "v2", "new_sqlite_classes": ["MockZone"] }
+    { "tag": "v2", "new_sqlite_classes": ["MockZone"] },
+    { "tag": "v3", "new_sqlite_classes": ["RealZone"] }
   ],
   "assets": { "directory": "./public/", "binding": "ASSETS", "run_worker_first": true },
   "workflows": [
@@ -23,6 +25,6 @@
     "CF_MODE": "mock",
     "DRY_RUN": "true",
     "PROTECTED_NAMES": "www,mail,api",
-    "OPENROUTER_MODEL": "liquid/lfm-2.5-2.6b:free"
+    "OPENROUTER_MODEL": "openrouter/free"
   }
 }

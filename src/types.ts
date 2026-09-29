@@ -10,6 +10,7 @@ export interface DnsRecord {
   modifiedOn: string;
   proxied: boolean;
   ttl: number;
+  raw?: { comment?: string; tags?: string[]; settings?: { ipv4_only?: boolean; ipv6_only?: boolean } };
 }
 
 export interface CloudflareClient {

@@ -1,4 +1,5 @@
 import { MockClient, createMockRecords } from "./clients/mock";
+import { RealClient, realConfig } from "./clients/real";
 import { biographyRequest, syncBiography } from "./biography";
 import type { AppEnv } from "./env";
 import { isEligible, listSuspects, scoreRecord } from "./scoring";
@@ -11,6 +12,7 @@ import { clearSessionCookie, isAuthorized, loginPage, sameOrigin, sessionCookie 
 export { GraveyardAgent } from "./agent";
 export { ResourceBiography } from "./biography";
 export { MockZone } from "./mock-zone";
+export { RealZone } from "./real-zone";
 export { QuarantineWorkflow } from "./workflow";
 
 const json = (value: unknown, status = 200): Response => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -18,15 +20,26 @@ const json = (value: unknown, status = 200): Response => new Response(JSON.strin
 export default {
   async fetch(request: Request, env: AppEnv): Promise<Response> {
     const url = new URL(request.url);
-    if (env.CF_MODE === "mock" && url.hostname.endsWith(".example.test")) {
+    if (String(env.CF_MODE) === "mock" && url.hostname.endsWith(".example.test")) {
       const route = await new MockClient(env).zoneFetch(`/route/${url.hostname}`);
       if (route.ok) return sinkholeResponse(request, env, (await route.json() as { recordId: string }).recordId);
       await route.arrayBuffer();
     }
-    if (url.pathname.startsWith("/obituary/") && request.method === "GET" && env.CF_MODE === "mock") {
+    if (String(env.CF_MODE) === "real" && env.CF_ZONE_NAME && url.hostname.endsWith(`.${env.CF_ZONE_NAME}`)) {
+      try {
+        const route = await new RealClient(env).zoneFetch(`/route/${url.hostname}`);
+        if (route.ok) return sinkholeResponse(request, env, (await route.json() as { recordId: string }).recordId);
+        await route.arrayBuffer();
+      } catch { return json({ error: "Sinkhole route lookup failed" }, 503); }
+      return json({ error: "No active quarantine route" }, 404);
+    }
+    if (url.pathname.startsWith("/obituary/") && request.method === "GET") {
       const recordId = decodeURIComponent(url.pathname.slice("/obituary/".length));
-      if (!createMockRecords().some((record) => record.id === recordId)) return json({ error: "Not found" }, 404);
-      const response = await biographyRequest(env, "mock-zone", recordId, "/");
+      const real = String(env.CF_MODE) === "real";
+      if (real ? !/^[a-f0-9]{32}$/.test(recordId) : !createMockRecords().some((record) => record.id === recordId)) return json({ error: "Not found" }, 404);
+      const zoneId = real ? env.CF_ZONE_ID : "mock-zone";
+      if (!zoneId) return json({ error: "Real zone is not configured" }, 503);
+      const response = await biographyRequest(env, zoneId, recordId, "/");
       if (!response.ok) return json({ error: "Not found" }, 404);
       const biography = await response.json() as Biography;
       return biography.state === "deleted" && biography.obituary ? obituaryPage(biography.obituary, url.origin) : json({ error: "Obituary not found" }, 404);
@@ -56,32 +69,40 @@ export default {
     if (!authorization.allowed) return json({ error: "Unauthorized" }, 401);
     if (authorization.cookie && request.method !== "GET" && !sameOrigin(request)) return json({ error: "Invalid origin" }, 403);
     if (authorization.cookie && request.method !== "GET" && !request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "JSON required" }, 415);
-    if (env.CF_MODE !== "mock") return json({ error: "Real Cloudflare client is scheduled for milestone 5" }, 501);
-    const client = new MockClient(env);
+    if (!["mock", "real"].includes(String(env.CF_MODE))) return json({ error: "Invalid CF_MODE" }, 503);
+    const real = String(env.CF_MODE) === "real";
+    let config: { zoneId: string; zoneName: string };
+    try { config = real ? realConfig(env) : { zoneId: "mock-zone", zoneName: "example.test" }; }
+    catch { return json({ error: "Real Cloudflare configuration is incomplete" }, 503); }
+    const client = real ? new RealClient(env) : new MockClient(env);
     const protectedNames = env.PROTECTED_NAMES.split(",").map((name) => name.trim());
     if (url.pathname === "/api/quarantines" && request.method === "GET") return client.zoneFetch("/quarantines");
     if (url.pathname === "/api/graveyard" && request.method === "GET") {
-      const biographies = await Promise.all(createMockRecords().map(async (record) => {
-        const response = await biographyRequest(env, "mock-zone", record.id, "/");
+      const ids = real ? (await (await client.zoneFetch("/graveyard")).json() as { recordIds: string[] }).recordIds : createMockRecords().map((record) => record.id);
+      const biographies = await Promise.all(ids.map(async (recordId) => {
+        const response = await biographyRequest(env, config.zoneId, recordId, "/");
         if (!response.ok) { await response.arrayBuffer(); return null; }
         return response.json() as Promise<Biography>;
       }));
       return json({ obituaries: biographies.filter((biography) => biography?.state === "deleted" && biography.obituary).map((biography) => biography!.obituary) });
     }
     if (url.pathname === "/api/suspects" && request.method === "GET") {
-      const suspects = await listSuspects(client, "mock-zone", "example.test", protectedNames);
-      return json({ zoneId: "mock-zone", dryRun: String(env.DRY_RUN) !== "false", suspects });
+      try {
+        if (real && await (client as RealClient).getZoneName() !== config.zoneName) return json({ error: "CF_ZONE_NAME does not match the Cloudflare zone" }, 409);
+        const suspects = await listSuspects(client, config.zoneId, config.zoneName, protectedNames);
+        return json({ zoneId: config.zoneId, zoneName: config.zoneName, mode: real ? "real" : "mock", dryRun: String(env.DRY_RUN) !== "false", suspects });
+      } catch { return json({ error: "DNS records could not be listed" }, 503); }
     }
     if (url.pathname.startsWith("/api/biography/") && request.method === "GET") {
       const recordId = decodeURIComponent(url.pathname.slice("/api/biography/".length));
-      const record = createMockRecords().find((item) => item.id === recordId);
-      if (!record || !isEligible(record, "example.test", protectedNames)) return json({ error: "Record not found" }, 404);
+      const record = real ? await (client as RealClient).getRecord(recordId) : createMockRecords().find((item) => item.id === recordId) ?? null;
+      if (!record && !real || record && !isEligible(record, config.zoneName, protectedNames)) return json({ error: "Record not found" }, 404);
       try {
-        const existing = await biographyRequest(env, "mock-zone", recordId, "/");
+        const existing = await biographyRequest(env, config.zoneId, recordId, "/");
         const biography = existing.ok ? await existing.json() as { state: string } : null;
         if (!existing.ok) await existing.arrayBuffer();
         if (biography && biography.state !== "suspect") return json(biography);
-        const active = (await client.listRecords("mock-zone")).find((item) => item.id === recordId);
+        const active = record ?? (await client.listRecords(config.zoneId)).find((item) => item.id === recordId);
         if (!active) return biography ? json(biography) : json({ error: "Biography not found" }, 404);
         return json(await syncBiography(env, await scoreRecord(active, client)));
       }
@@ -92,7 +113,7 @@ export default {
       if (!body || typeof body.recordId !== "string") return json({ error: "Invalid request" }, 400);
       const proposal = await client.zoneFetch("/propose", body);
       if (!proposal.ok) return proposal;
-      return json({ ...await proposal.json() as object, dryRun: String(env.DRY_RUN) !== "false", plan: "Snapshot the record, proxy it to the sinkhole, then restore on a scream or delete after the window." });
+      return json({ ...await proposal.json() as object, dryRun: String(env.DRY_RUN) !== "false", plan: "Snapshot the record, attach the sinkhole route, proxy the record to a placeholder, then restore on a scream or delete after the window." });
     }
     if (url.pathname === "/api/quarantine/confirm" && request.method === "POST") {
       const body = await readBody(request);
@@ -106,7 +127,7 @@ export default {
         return json({ dryRun: true, recordId: body.recordId, routePattern: result.routePattern, message: "No DNS or route change was applied." });
       }
       const params: QuarantineParams = {
-        zoneId: "mock-zone", recordId: body.recordId, snapshot: result.record,
+        zoneId: config.zoneId, recordId: body.recordId, snapshot: result.record, mode: real ? "real" : "mock",
         quarantineSeconds: body.quarantineSeconds as number, screamThreshold: body.screamThreshold as number,
         deadlineAt: new Date(Date.now() + Number(body.quarantineSeconds) * 1000).toISOString(), workflowId
       };
@@ -123,7 +144,7 @@ export default {
       const quarantine = await client.zoneFetch(`/quarantine/${recordId}`);
       if (!quarantine.ok) return quarantine;
       const status = await quarantine.json() as { workflowId: string };
-      const biography = await biographyRequest(env, "mock-zone", recordId, "/");
+      const biography = await biographyRequest(env, config.zoneId, recordId, "/");
       let workflow: unknown = null;
       try { workflow = await (await env.QUARANTINE_WORKFLOW.get(status.workflowId)).status(); } catch { /* Workflow may still be starting. */ }
       return json({ quarantine: status, biography: biography.ok ? await biography.json() : null, workflow });
@@ -131,7 +152,7 @@ export default {
     if (url.pathname === "/api/quarantine/resurrect" && request.method === "POST") {
       const body = await readBody(request);
       if (!body || typeof body.recordId !== "string") return json({ error: "Invalid request" }, 400);
-      const existing = await biographyRequest(env, "mock-zone", body.recordId, "/");
+      const existing = await biographyRequest(env, config.zoneId, body.recordId, "/");
       if (!existing.ok) return existing;
       const biography = await existing.json() as { state: string };
       if (biography.state === "deleted") {
@@ -139,11 +160,18 @@ export default {
         const restored = await client.zoneFetch("/restore", { recordId: body.recordId });
         if (!restored.ok) return restored;
         await restored.arrayBuffer();
-        return biographyRequest(env, "mock-zone", body.recordId, "/resurrected", {});
+        return biographyRequest(env, config.zoneId, body.recordId, "/resurrected", {});
       }
-      return biographyRequest(env, "mock-zone", body.recordId, "/resurrect-request", {});
+      const requested = await biographyRequest(env, config.zoneId, body.recordId, "/resurrect-request", {});
+      if (real && requested.ok && String(env.DRY_RUN) === "false") {
+        const restored = await client.zoneFetch("/restore", { recordId: body.recordId });
+        if (restored.ok) { await restored.arrayBuffer(); return biographyRequest(env, config.zoneId, body.recordId, "/resurrected", {}); }
+        return restored;
+      }
+      return requested;
     }
     if (url.pathname === "/api/dev/simulate-scream" && request.method === "POST") {
+      if (real) return json({ error: "Simulation is only available in mock mode" }, 404);
       const body = await readBody(request);
       if (!body || typeof body.recordId !== "string") return json({ error: "Invalid request" }, 400);
       return recordSinkholeHit(env, {
@@ -157,11 +185,11 @@ export default {
     if (url.pathname === "/api/chat" && request.method === "POST") {
       let input: unknown;
       try { input = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
-      const stub = env.GraveyardAgent.get(env.GraveyardAgent.idFromName("mock-zone"));
-      return stub.fetch(new Request("https://agent.internal/chat", { method: "POST", body: JSON.stringify({ ...(typeof input === "object" && input !== null ? input : {}), zoneId: "mock-zone" }) }));
+      const stub = env.GraveyardAgent.get(env.GraveyardAgent.idFromName(config.zoneId));
+      return stub.fetch(new Request("https://agent.internal/chat", { method: "POST", body: JSON.stringify({ ...(typeof input === "object" && input !== null ? input : {}), zoneId: config.zoneId }) }));
     }
     if (url.pathname === "/api/chat/history" && request.method === "GET") {
-      const stub = env.GraveyardAgent.get(env.GraveyardAgent.idFromName("mock-zone"));
+      const stub = env.GraveyardAgent.get(env.GraveyardAgent.idFromName(config.zoneId));
       return stub.fetch("https://agent.internal/history");
     }
     return json({ error: "Not found" }, 404);

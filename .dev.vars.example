@@ -1,2 +1,5 @@
 ADMIN_SECRET=replace-with-a-long-random-secret
 OPENROUTER_API_KEY=replace-with-openrouter-key
+# Real mode only: set CF_ZONE_ID and CF_ZONE_NAME in wrangler vars.
+# Add a zone-scoped runtime token here for local real-mode dry-run testing:
+# CF_API_TOKEN=replace-with-zone-scoped-cloudflare-token

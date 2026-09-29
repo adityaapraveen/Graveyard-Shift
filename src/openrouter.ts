@@ -22,7 +22,7 @@ export async function chooseEvidence(biography: Biography, apiKey: string, model
       model,
       provider: { require_parameters: true },
       temperature: 0,
-      max_completion_tokens: 1200,
+      max_completion_tokens: 3000,
       messages: [
         { role: "system", content: "Select evidence kinds that matter for reviewing a DNS record. Its purpose is always unknown. Do not infer safety or propose actions." },
         { role: "user", content: JSON.stringify({ name: biography.record.name, type: biography.record.type, content: biography.record.content, score: biography.score, signals: biography.signals }) }
